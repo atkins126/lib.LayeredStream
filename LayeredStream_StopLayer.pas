@@ -11,10 +11,12 @@
 
     Stops reads, writes and, depending on settings, seeks so they are not
     propagated to the next layer.
+    Note that internal seeking is affected the same way as normal seeking,
+    except that it is always silent (does not raise an exception).
 
-  Version 1.0 beta (2021-02-12)
+  Version 1.0 beta 2 (2021-03-14)
 
-  Last change 2021-02-12
+  Last change 2021-03-14
 
   ©2020-2021 František Milt
 
@@ -47,13 +49,15 @@
     SHA1               - github.com/TheLazyTomcat/Lib.SHA1
     SHA2               - github.com/TheLazyTomcat/Lib.SHA2
     SHA3               - github.com/TheLazyTomcat/Lib.SHA3
+    CityHash           - github.com/TheLazyTomcat/Lib.CityHash
     HashBase           - github.com/TheLazyTomcat/Lib.HashBase
     StrRect            - github.com/TheLazyTomcat/Lib.StrRect
-    BitOps             - github.com/TheLazyTomcat/Lib.BitOps
     StaticMemoryStream - github.com/TheLazyTomcat/Lib.StaticMemoryStream
   * SimpleCPUID        - github.com/TheLazyTomcat/Lib.SimpleCPUID
-    ZLibUtils          - github.com/TheLazyTomcat/Lib.ZLibUtils
+    BitOps             - github.com/TheLazyTomcat/Lib.BitOps
+    UInt64Utils        - github.com/TheLazyTomcat/Lib.UInt64Utils
     MemoryBuffer       - github.com/TheLazyTomcat/Lib.MemoryBuffer
+    ZLibUtils          - github.com/TheLazyTomcat/Lib.ZLibUtils
     DynLibUtils        - github.com/TheLazyTomcat/Lib.DynLibUtils
     ZLib               - github.com/TheLazyTomcat/Bnd.ZLib
 
@@ -94,12 +98,12 @@ type
   protected
     Function SeekActive(const Offset: Int64; Origin: TSeekOrigin): Int64; override;
     Function ReadActive(out Buffer; Size: LongInt): LongInt; override;
+    procedure ParamsCommon(Params: TSimpleNamedValues; Caller: TLSLayerObjectParamReceiver); override;
     procedure Initialize(Params: TSimpleNamedValues); override;
   public
     class Function LayerObjectProperties: TLSLayerObjectProperties; override;
     class Function LayerObjectParams: TLSLayerObjectParams; override;
-    procedure Init(Params: TSimpleNamedValues); override;
-    procedure Update(Params: TSimpleNamedValues); override;
+    Function SeekInternal(const Offset: Int64; Origin: TSeekOrigin): Int64; override;
     property StopSeek: Boolean read fStopSeek write fStopSeek;
     property SilentStop: Boolean read fSilentStop write fSilentStop;
     property ReadZeroes: Boolean read fReadZeroes write fReadZeroes;
@@ -122,12 +126,12 @@ type
   protected
     Function SeekActive(const Offset: Int64; Origin: TSeekOrigin): Int64; override;
     Function WriteActive(const Buffer; Size: LongInt): LongInt; override;
+    procedure ParamsCommon(Params: TSimpleNamedValues; Caller: TLSLayerObjectParamReceiver); override;
     procedure Initialize(Params: TSimpleNamedValues); override;
   public
     class Function LayerObjectProperties: TLSLayerObjectProperties; override;
     class Function LayerObjectParams: TLSLayerObjectParams; override;
-    procedure Init(Params: TSimpleNamedValues); override;
-    procedure Update(Params: TSimpleNamedValues); override;
+    Function SeekInternal(const Offset: Int64; Origin: TSeekOrigin): Int64; override;
     property StopSeek: Boolean read fStopSeek write fStopSeek;
     property SilentStop: Boolean read fSilentStop write fSilentStop;
     property WriteSink: Boolean read fWriteSink write fWriteSink;
@@ -140,6 +144,7 @@ uses
 
 {$IFDEF FPC_DisableWarns}
   {$DEFINE FPCDWM}
+  {$DEFINE W5024:={$WARN 5024 OFF}} // Parameter "$1" not used
   {$DEFINE W5058:={$WARN 5058 OFF}} // Variable "$1" does not seem to be initialized
 {$ENDIF}
 
@@ -191,15 +196,23 @@ end;
 
 //------------------------------------------------------------------------------
 
-procedure TStopLayerReader.Initialize(Params: TSimpleNamedValues);
+{$IFDEF FPCDWM}{$PUSH}W5024{$ENDIF}
+procedure TStopLayerReader.ParamsCommon(Params: TSimpleNamedValues; Caller: TLSLayerObjectParamReceiver);
 begin
-inherited;
-fStopSeek := False;
-fSilentStop := True;
-fReadZeroes := True;
 GetNamedValue(Params,'TStopLayerReader.StopSeek',fStopSeek);
 GetNamedValue(Params,'TStopLayerReader.SilentStop',fSilentStop);
 GetNamedValue(Params,'TStopLayerReader.ReadZeroes',fReadZeroes);
+end;
+{$IFDEF FPCDWM}{$POP}{$ENDIF}
+
+//------------------------------------------------------------------------------
+
+procedure TStopLayerReader.Initialize(Params: TSimpleNamedValues);
+begin
+fStopSeek := False;
+fSilentStop := True;
+fReadZeroes := True;
+inherited;
 end;
 
 {-------------------------------------------------------------------------------
@@ -224,24 +237,13 @@ end;
 
 //------------------------------------------------------------------------------
 
-procedure TStopLayerReader.Init(Params: TSimpleNamedValues);
+Function TStopLayerReader.SeekInternal(const Offset: Int64; Origin: TSeekOrigin): Int64;
 begin
-inherited;
-GetNamedValue(Params,'TStopLayerReader.StopSeek',fStopSeek);
-GetNamedValue(Params,'TStopLayerReader.SilentStop',fSilentStop);
-GetNamedValue(Params,'TStopLayerReader.ReadZeroes',fReadZeroes);
+If fStopSeek then
+  Result := 0
+else
+  Result := inherited SeekInternal(Offset,Origin);
 end;
-
-//------------------------------------------------------------------------------
-
-procedure TStopLayerReader.Update(Params: TSimpleNamedValues);
-begin
-inherited;
-GetNamedValue(Params,'TStopLayerReader.StopSeek',fStopSeek);
-GetNamedValue(Params,'TStopLayerReader.SilentStop',fSilentStop);
-GetNamedValue(Params,'TStopLayerReader.ReadZeroes',fReadZeroes);
-end;
-
 
 {===============================================================================
 --------------------------------------------------------------------------------
@@ -287,15 +289,23 @@ end;
 
 //------------------------------------------------------------------------------
 
-procedure TStopLayerWriter.Initialize(Params: TSimpleNamedValues);
+{$IFDEF FPCDWM}{$PUSH}W5024{$ENDIF}
+procedure TStopLayerWriter.ParamsCommon(Params: TSimpleNamedValues; Caller: TLSLayerObjectParamReceiver);
 begin
-inherited;
-fStopSeek := False;
-fSilentStop := True;
-fWriteSink := True;
 GetNamedValue(Params,'TStopLayerWriter.StopSeek',fStopSeek);
 GetNamedValue(Params,'TStopLayerWriter.SilentStop',fSilentStop);
 GetNamedValue(Params,'TStopLayerWriter.WriteSink',fWriteSink);
+end;
+{$IFDEF FPCDWM}{$POP}{$ENDIF}
+
+//------------------------------------------------------------------------------
+
+procedure TStopLayerWriter.Initialize(Params: TSimpleNamedValues);
+begin
+fStopSeek := False;
+fSilentStop := True;
+fWriteSink := True;
+inherited;
 end;
 
 {-------------------------------------------------------------------------------
@@ -320,22 +330,12 @@ end;
 
 //------------------------------------------------------------------------------
 
-procedure TStopLayerWriter.Init(Params: TSimpleNamedValues);
+Function TStopLayerWriter.SeekInternal(const Offset: Int64; Origin: TSeekOrigin): Int64;
 begin
-inherited;
-GetNamedValue(Params,'TStopLayerWriter.StopSeek',fStopSeek);
-GetNamedValue(Params,'TStopLayerWriter.SilentStop',fSilentStop);
-GetNamedValue(Params,'TStopLayerWriter.WriteSink',fWriteSink);
-end;
-
-//------------------------------------------------------------------------------
-
-procedure TStopLayerWriter.Update(Params: TSimpleNamedValues);
-begin
-inherited;
-GetNamedValue(Params,'TStopLayerWriter.StopSeek',fStopSeek);
-GetNamedValue(Params,'TStopLayerWriter.SilentStop',fSilentStop);
-GetNamedValue(Params,'TStopLayerWriter.WriteSink',fWriteSink);
+If fStopSeek then
+  Result := 0
+else
+  Result := inherited SeekInternal(Offset,Origin);
 end;
 
 {===============================================================================

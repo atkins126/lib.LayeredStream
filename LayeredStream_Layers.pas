@@ -12,9 +12,9 @@
     This unit provides parent classes for all layers along with some utility
     functions that can be used to simplify implementation of new layers.
 
-  Version 1.0 beta (2021-02-12)
+  Version 1.0 beta 2 (2021-03-14)
 
-  Last change 2021-02-12
+  Last change 2021-03-14
 
   ©2020-2021 František Milt
 
@@ -47,13 +47,15 @@
     SHA1               - github.com/TheLazyTomcat/Lib.SHA1
     SHA2               - github.com/TheLazyTomcat/Lib.SHA2
     SHA3               - github.com/TheLazyTomcat/Lib.SHA3
+    CityHash           - github.com/TheLazyTomcat/Lib.CityHash
     HashBase           - github.com/TheLazyTomcat/Lib.HashBase
     StrRect            - github.com/TheLazyTomcat/Lib.StrRect
-    BitOps             - github.com/TheLazyTomcat/Lib.BitOps
     StaticMemoryStream - github.com/TheLazyTomcat/Lib.StaticMemoryStream
   * SimpleCPUID        - github.com/TheLazyTomcat/Lib.SimpleCPUID
-    ZLibUtils          - github.com/TheLazyTomcat/Lib.ZLibUtils
+    BitOps             - github.com/TheLazyTomcat/Lib.BitOps
+    UInt64Utils        - github.com/TheLazyTomcat/Lib.UInt64Utils
     MemoryBuffer       - github.com/TheLazyTomcat/Lib.MemoryBuffer
+    ZLibUtils          - github.com/TheLazyTomcat/Lib.ZLibUtils
     DynLibUtils        - github.com/TheLazyTomcat/Lib.DynLibUtils
     ZLib               - github.com/TheLazyTomcat/Bnd.ZLib
 
@@ -194,7 +196,7 @@ type
         even seek. The requests and data are stopped at this layer and are not
         passed to the next layer.
         Reader, when asked to read some data, will, depending on settings,
-        return 0 ot the buffer size - in which case the buffer is filled with
+        return 0 or the buffer size - in which case the buffer is filled with
         zeroes.
         Writer will, depending on settings, return 0 or buffer size. Data
         passed in the buffer are completely ignored.
@@ -375,7 +377,7 @@ type
     - always append inherited parameters to current parameter list
     - expect methods init, update, flush and final to be called even when not
       needed, expect them to be called at any time, any number of times, in any
-      order (when realy needed, wrong order is allowed produce an exception)
+      order (when realy needed, wrong order is allowed to produce an exception)
     - be aware of the order in which methods init, update, flush and final are
       called within the layer stack
     - properly override methods Initialize and Finalize (they are called from
@@ -393,13 +395,30 @@ type
 type
   TLSLayerObjectBase = class(TCustomObject)
   protected
-    fCounterpart:     TLSLayerObjectBase; // the other object in layer pair
-    fSeekConnection:  TLSLayerObjectSeekConnection;
-    fActive:          Boolean;
+    fCounterpart:           TLSLayerObjectBase; // the other object in layer pair
+    fSeekConnection:        TLSLayerObjectSeekConnection;
+    fSeekInternConnection:  TLSLayerObjectSeekConnection;
+    fActive:                Boolean;
     procedure SetCounterpart(Value: TLSLayerObjectBase); virtual;
     procedure SetActive(Value: Boolean); virtual;
     Function SeekActive(const Offset: Int64; Origin: TSeekOrigin): Int64; virtual; abstract;
     Function SeekOut(const Offset: Int64; Origin: TSeekOrigin): Int64; virtual;
+  {
+    It is recommended to process parameters in the individual methods that are
+    accepting them.
+    This method is here for situations where you want to do the same procesing
+    for multiple or all receiving methods, so you don't need to repeat the same
+    code.
+    Note that this method is called automatically, you don't have to call it
+    explicitly.
+  }
+    procedure ParamsCommon(Params: TSimpleNamedValues; Caller: TLSLayerObjectParamReceiver); virtual;
+  {
+    NOTE - if you are creating some internal object in Initialize, it is
+           recommended do so before calling an inherited code.
+           Also, any field or property that is set in this method and that can
+           be changed in ParamsCommon should be set before a call to inherited.
+  }
     procedure Initialize(Params: TSimpleNamedValues); virtual;
     procedure Finalize; virtual;
   public
@@ -439,9 +458,28 @@ type
     procedure Flush; virtual;
     procedure Final; virtual;
     Function SeekIn(const Offset: Int64; Origin: TSeekOrigin): Int64; virtual;
+  {
+    Internal seeking is used by internal workings of individual layer objects.
+    It must be executed only from within read or write processing.
+
+    Each object is responsible for proper implementation of internal seeking,
+    but usually the default implementation (passthrough of the seek request) is
+    sufficient.
+    As this system might be essential for proper working of some layers, a great
+    care must be taken when implementing it, so one layer does not adversely
+    affect working of other layers.
+
+    Note that internal seek is NOT affected by layer active state.
+    Also remember that the internal seek is always executed in read or write
+    mode of the layered stream, never in seek mode, and always by the respective
+    layer objects (write mode - writers, read mode - readers), so it should be
+    separate from general seeking.
+  }
+    Function SeekInternal(const Offset: Int64; Origin: TSeekOrigin): Int64; virtual;
     property Counterpart: TLSLayerObjectBase read fCounterpart write SetCounterpart;
     property Active: Boolean read fActive write SetActive;
     property SeekConnection: TLSLayerObjectSeekConnection read fSeekConnection write fSeekConnection;
+    property SeekInternalConnection: TLSLayerObjectSeekConnection read fSeekInternConnection write fSeekInternConnection;
   end;
 
   TLSLayerObjectClass = class of TLSLayerObjectBase;
@@ -569,11 +607,21 @@ end;
 //------------------------------------------------------------------------------
 
 {$IFDEF FPCDWM}{$PUSH}W5024{$ENDIF}
+procedure TLSLayerObjectBase.ParamsCommon(Params: TSimpleNamedValues; Caller: TLSLayerObjectParamReceiver);
+begin
+// do nothing at this point
+end;
+{$IFDEF FPCDWM}{$POP}{$ENDIF}
+
+//------------------------------------------------------------------------------
+
+{$IFDEF FPCDWM}{$PUSH}W5024{$ENDIF}
 procedure TLSLayerObjectBase.Initialize(Params: TSimpleNamedValues);
 begin
 fCounterpart := nil;
 fSeekConnection := nil;
 fActive := True;
+ParamsCommon(Params,loprConstructor);
 end;
 {$IFDEF FPCDWM}{$POP}{$ENDIF}
 
@@ -646,12 +694,10 @@ end;
 
 //------------------------------------------------------------------------------
 
-{$IFDEF FPCDWM}{$PUSH}W5024{$ENDIF}
 procedure TLSLayerObjectBase.Init(Params: TSimpleNamedValues = nil);
 begin
-// nothing to do
+ParamsCommon(Params,loprInitializer);
 end;
-{$IFDEF FPCDWM}{$POP}{$ENDIF}
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -662,12 +708,10 @@ end;
 
 //------------------------------------------------------------------------------
 
-{$IFDEF FPCDWM}{$PUSH}W5024{$ENDIF}
 procedure TLSLayerObjectBase.Update(Params: TSimpleNamedValues = nil);
 begin
-// nothing to do
+ParamsCommon(Params,loprUpdater);
 end;
-{$IFDEF FPCDWM}{$POP}{$ENDIF}
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -700,6 +744,16 @@ else
   Result := SeekOut(Offset,Origin);
 end;
 
+//------------------------------------------------------------------------------
+
+Function TLSLayerObjectBase.SeekInternal(const Offset: Int64; Origin: TSeekOrigin): Int64;
+begin
+Result := 0;
+If Assigned(fSeekInternConnection) then
+  Result := fSeekInternConnection(Offset,Origin)
+else
+  ELSInvalidConnection.Create('TLSLayerObjectBase.SeekInternal: Seek-internal connection not assigned.');
+end;
 
 {===============================================================================
 --------------------------------------------------------------------------------

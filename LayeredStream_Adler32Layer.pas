@@ -11,9 +11,9 @@
 
     Calculates Adler2 checksum of read or written data.
 
-  Version 1.0 beta (2021-02-12)
+  Version 1.0 beta 2 (2021-03-14)
 
-  Last change 2021-02-12
+  Last change 2021-03-14
 
   ©2020-2021 František Milt
 
@@ -46,13 +46,15 @@
     SHA1               - github.com/TheLazyTomcat/Lib.SHA1
     SHA2               - github.com/TheLazyTomcat/Lib.SHA2
     SHA3               - github.com/TheLazyTomcat/Lib.SHA3
+    CityHash           - github.com/TheLazyTomcat/Lib.CityHash
     HashBase           - github.com/TheLazyTomcat/Lib.HashBase
     StrRect            - github.com/TheLazyTomcat/Lib.StrRect
-    BitOps             - github.com/TheLazyTomcat/Lib.BitOps
     StaticMemoryStream - github.com/TheLazyTomcat/Lib.StaticMemoryStream
   * SimpleCPUID        - github.com/TheLazyTomcat/Lib.SimpleCPUID
-    ZLibUtils          - github.com/TheLazyTomcat/Lib.ZLibUtils
+    BitOps             - github.com/TheLazyTomcat/Lib.BitOps
+    UInt64Utils        - github.com/TheLazyTomcat/Lib.UInt64Utils
     MemoryBuffer       - github.com/TheLazyTomcat/Lib.MemoryBuffer
+    ZLibUtils          - github.com/TheLazyTomcat/Lib.ZLibUtils
     DynLibUtils        - github.com/TheLazyTomcat/Lib.DynLibUtils
     ZLib               - github.com/TheLazyTomcat/Bnd.ZLib
 
@@ -145,8 +147,8 @@ end;
 
 procedure TAdler32LayerReader.Initialize(Params: TSimpleNamedValues);
 begin
-inherited;
 fHasher := TAdler32Hash.Create;
+inherited;
 end;
 
 {===============================================================================
@@ -179,8 +181,8 @@ end;
 
 procedure TAdler32LayerWriter.Initialize(Params: TSimpleNamedValues);
 begin
-inherited;
 fHasher := TAdler32Hash.Create;
+inherited;
 end;
 
 {===============================================================================

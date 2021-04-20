@@ -14,9 +14,9 @@
     Currently, only basic statistic is implemented, more will be probably
     introduced later.
 
-  Version 1.0 beta (2021-02-12)
+  Version 1.0 beta 2 (2021-03-14)
 
-  Last change 2021-02-12
+  Last change 2021-03-14
 
   ©2020-2021 František Milt
 
@@ -49,13 +49,15 @@
     SHA1               - github.com/TheLazyTomcat/Lib.SHA1
     SHA2               - github.com/TheLazyTomcat/Lib.SHA2
     SHA3               - github.com/TheLazyTomcat/Lib.SHA3
+    CityHash           - github.com/TheLazyTomcat/Lib.CityHash
     HashBase           - github.com/TheLazyTomcat/Lib.HashBase
     StrRect            - github.com/TheLazyTomcat/Lib.StrRect
-    BitOps             - github.com/TheLazyTomcat/Lib.BitOps
     StaticMemoryStream - github.com/TheLazyTomcat/Lib.StaticMemoryStream
   * SimpleCPUID        - github.com/TheLazyTomcat/Lib.SimpleCPUID
-    ZLibUtils          - github.com/TheLazyTomcat/Lib.ZLibUtils
+    BitOps             - github.com/TheLazyTomcat/Lib.BitOps
+    UInt64Utils        - github.com/TheLazyTomcat/Lib.UInt64Utils
     MemoryBuffer       - github.com/TheLazyTomcat/Lib.MemoryBuffer
+    ZLibUtils          - github.com/TheLazyTomcat/Lib.ZLibUtils
     DynLibUtils        - github.com/TheLazyTomcat/Lib.DynLibUtils
     ZLib               - github.com/TheLazyTomcat/Bnd.ZLib
 
@@ -125,13 +127,13 @@ type
   protected
     Function SeekActive(const Offset: Int64; Origin: TSeekOrigin): Int64; override;
     Function ReadActive(out Buffer; Size: LongInt): LongInt; override;
+    procedure ParamsCommon(Params: TSimpleNamedValues; Caller: TLSLayerObjectParamReceiver); override;
     procedure Initialize(Params: TSimpleNamedValues); override;
     procedure ClearStats; virtual;
   public
     class Function LayerObjectProperties: TLSLayerObjectProperties; override;
     class Function LayerObjectParams: TLSLayerObjectParams; override;
     procedure Init(Params: TSimpleNamedValues); override;
-    procedure Update(Params: TSimpleNamedValues); override;
     property StartTime: TDateTime read fStartTime write fStartTime;
     property ClearCounter: UInt32 read fClearCounter write fClearCounter;
     property FullStats: Boolean read fFullStats write fFullStats;
@@ -156,13 +158,13 @@ type
   protected
     Function SeekActive(const Offset: Int64; Origin: TSeekOrigin): Int64; override;
     Function WriteActive(const Buffer; Size: LongInt): LongInt; override;
+    procedure ParamsCommon(Params: TSimpleNamedValues; Caller: TLSLayerObjectParamReceiver); override;
     procedure Initialize(Params: TSimpleNamedValues); override;
     procedure ClearStats; virtual;
   public
     class Function LayerObjectProperties: TLSLayerObjectProperties; override;
     class Function LayerObjectParams: TLSLayerObjectParams; override;
     procedure Init(Params: TSimpleNamedValues); override;
-    procedure Update(Params: TSimpleNamedValues); override;
     property StartTime: TDateTime read fStartTime write fStartTime;
     property ClearCounter: UInt32 read fClearCounter write fClearCounter;
     property FullStats: Boolean read fFullStats write fFullStats;
@@ -174,6 +176,11 @@ implementation
 uses
   SysUtils,
   LayeredStream;
+
+{$IFDEF FPC_DisableWarns}
+  {$DEFINE FPCDWM}
+  {$DEFINE W5024:={$WARN 5024 OFF}} // Parameter "$1" not used
+{$ENDIF}
 
 {===============================================================================
 --------------------------------------------------------------------------------
@@ -253,13 +260,21 @@ end;
 
 //------------------------------------------------------------------------------
 
+{$IFDEF FPCDWM}{$PUSH}W5024{$ENDIF}
+procedure TStatLayerReader.ParamsCommon(Params: TSimpleNamedValues; Caller: TLSLayerObjectParamReceiver);
+begin
+GetNamedValue(Params,'TStatLayerReader.FullStats',fFullStats);
+end;
+{$IFDEF FPCDWM}{$POP}{$ENDIF}
+
+//------------------------------------------------------------------------------
+
 procedure TStatLayerReader.Initialize(Params: TSimpleNamedValues);
 begin
+fFullStats := False;  // can be set in ParamsCommon called from inherited code
 inherited;
 fStartTime := Now;
 fClearCounter := 0;
-fFullStats := False;
-GetNamedValue(Params,'TStatLayerReader.FullStats',fFullStats);
 ClearStats;
 end;
 
@@ -297,21 +312,11 @@ var
   KeepStats:  Boolean;
 begin
 inherited;
-GetNamedValue(Params,'TStatLayerReader.FullStats',fFullStats);
 KeepStats := False;
 GetNamedValue(Params,'TStatLayerReader.KeepStats',KeepStats);
 If not KeepStats then
   ClearStats;
 end;
-
-//------------------------------------------------------------------------------
-
-procedure TStatLayerReader.Update(Params: TSimpleNamedValues);
-begin
-inherited;
-GetNamedValue(Params,'TStatLayerReader.FullStats',fFullStats);
-end;
-
 
 {===============================================================================
 --------------------------------------------------------------------------------
@@ -391,13 +396,21 @@ end;
 
 //------------------------------------------------------------------------------
 
+{$IFDEF FPCDWM}{$PUSH}W5024{$ENDIF}
+procedure TStatLayerWriter.ParamsCommon(Params: TSimpleNamedValues; Caller: TLSLayerObjectParamReceiver);
+begin
+GetNamedValue(Params,'TStatLayerWriter.FullStats',fFullStats);
+end;
+{$IFDEF FPCDWM}{$POP}{$ENDIF}
+
+//------------------------------------------------------------------------------
+
 procedure TStatLayerWriter.Initialize(Params: TSimpleNamedValues);
 begin
+fFullStats := False;
 inherited;
 fStartTime := Now;
 fClearCounter := 0;
-fFullStats := False;
-GetNamedValue(Params,'TStatLayerWriter.FullStats',fFullStats);
 ClearStats;
 end;
 
@@ -435,19 +448,10 @@ var
   KeepStats:  Boolean;
 begin
 inherited;
-GetNamedValue(Params,'TStatLayerWriter.FullStats',fFullStats);
 KeepStats := False;
 GetNamedValue(Params,'TStatLayerWriter.KeepStats',KeepStats);
 If not KeepStats then
   ClearStats;
-end;
-
-//------------------------------------------------------------------------------
-
-procedure TStatLayerWriter.Update(Params: TSimpleNamedValues);
-begin
-inherited;
-GetNamedValue(Params,'TStatLayerWriter.FullStats',fFullStats);
 end;
 
 {===============================================================================
